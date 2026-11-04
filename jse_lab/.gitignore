@@ -1,0 +1,7 @@
+.env
+.venv/
+data_cache/
+logs/
+results/
+holdings.json
+__pycache__/
