@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from dashboard.backend.infrastructure.market_data.provider import (
     default_backtest_window,
     ifind_ashare_enabled,
+    yahoo_jse_enabled,
     vnpy_simulation_enabled,
 )
 from dashboard.backend.paths import CONFIG_DIR
@@ -44,6 +45,7 @@ def get_features():
     return {
         "vnpy_simulation_enabled": vnpy_simulation_enabled(),
         "ifind_ashare_enabled": ifind_ashare_enabled(),
+        "yahoo_jse_enabled": yahoo_jse_enabled(),
     }
 
 

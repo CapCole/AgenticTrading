@@ -155,8 +155,10 @@ from dashboard.backend.infrastructure.market_data.sessions import (
 from dashboard.backend.infrastructure.market_data.profiles import (
     IFIND_ASHARE,
     LLM_DECISION_SOURCE,
+    PROFILE_OWNED_UNIVERSE_SOURCES,
     RULE_BASED_DECISION_SOURCE,
     VNPY_SIMULATION,
+    YAHOO_JSE,
     MarketProfile,
     get_market_profile,
     resolve_decision_source,
@@ -265,6 +267,10 @@ def _accepts_keyword(function, name: str, *, via_var_keyword: bool = True) -> bo
         or (via_var_keyword and parameter.kind == inspect.Parameter.VAR_KEYWORD)
         for parameter in parameters
     )
+
+
+#: Sharpe sampling factor for a daily-bar curve (one mark per trading day).
+TRADING_DAYS_PER_YEAR = 252
 
 
 class HourlyBacktester:
@@ -424,7 +430,7 @@ class HourlyBacktester:
             self.strict_llm = False
         self.universe_selection = None
         if stock_pool is not None or pool_mode is not None or universe_selection is not None:
-            if data_source == IFIND_ASHARE or symbols is not None:
+            if data_source in PROFILE_OWNED_UNIVERSE_SOURCES or symbols is not None:
                 raise ValueError("stock_pool requires a US source and cannot be combined with symbols")
             if universe_selection is not None:
                 if stock_pool is not None or pool_mode is not None:
@@ -435,8 +441,8 @@ class HourlyBacktester:
                     raise ValueError("pool_mode requires stock_pool")
                 self.universe_selection = resolve_strategy_universe(stock_pool, pool_mode or "top30")
             self.symbols = list(self.universe_selection["symbols"])
-        # iFinD is backend-owned; US providers can use the selected run assets.
-        elif data_source == IFIND_ASHARE:
+        # iFinD and Yahoo JSE are backend-owned; US providers can use the selected run assets.
+        elif data_source in PROFILE_OWNED_UNIVERSE_SOURCES:
             self.symbols = self.profile.symbols
         elif symbols:
             cleaned = []
@@ -1414,6 +1420,11 @@ class HourlyBacktester:
             self._ifind_common_start = self._validate_ifind_loaded_data()
             self._initialize_ifind_market_rules()
             self._initialize_ifind_currency_context()
+        elif self.data_source == YAHOO_JSE:
+            # Same attribute as iFinD: the first bar every symbol shares, where
+            # baselines start and the FX rate is first read.
+            self._ifind_common_start = self._validate_jse_loaded_data()
+            self._initialize_jse_currency_context()
 
     def _split_warmup(
         self, frames: Dict[str, Any]
@@ -1545,6 +1556,59 @@ class HourlyBacktester:
             self.initial_capital,
             self._ifind_common_start,
         )
+
+    def _initialize_jse_currency_context(self) -> None:
+        """Load USD/ZAR closes for a Yahoo JSE run (rands -> reported dollars)."""
+        if not hasattr(self.data_loader, "fetch_fx_rates"):
+            raise MarketDataUnavailableError(
+                f"{self.data_source} market data provider cannot supply the "
+                "USD/ZAR rate a JSE run requires"
+            )
+        try:
+            # From the indicator pad, so a rate exists on or before the first bar.
+            rates = self.data_loader.fetch_fx_rates(
+                self.symbols,
+                warmup_fetch_start(self.start_date),
+                self.provider_end_date,
+            )
+            context = CurrencyContext(
+                native_currency=self.profile.native_currency,
+                reporting_currency=self.profile.reporting_currency,
+                timezone=self.profile.timezone,
+                rates=rates,
+                fx_source="yahoo_usd_zar_daily_close",
+                fx_policy="daily_close_forward_fill",
+            )
+            context.rate_at(self._ifind_common_start)
+        except (ValueError, CurrencyContextError) as exc:
+            raise MarketDataUnavailableError(
+                f"Yahoo USD/ZAR rate is unusable: {exc}"
+            ) from exc
+        self.currency_context = context
+        self.native_initial_capital = context.to_native(
+            self.initial_capital,
+            self._ifind_common_start,
+        )
+
+    def _validate_jse_loaded_data(self):
+        """Require bars for every JSE symbol and a first bar they all share."""
+        missing = [
+            symbol
+            for symbol in self.symbols
+            if symbol not in self.all_data or self.all_data[symbol].empty
+        ]
+        if missing:
+            raise MarketDataUnavailableError(
+                f"Yahoo JSE returned no bars for {missing!r}"
+            )
+        common_index = self.all_data[self.symbols[0]].index
+        for symbol in self.symbols[1:]:
+            common_index = common_index.intersection(self.all_data[symbol].index)
+        if common_index.empty:
+            raise MarketDataUnavailableError(
+                "Yahoo JSE symbols share no trading day in the window"
+            )
+        return common_index.min()
 
     def _require_currency_context(self) -> CurrencyContext:
         context = getattr(self, "currency_context", None)
@@ -1698,7 +1762,7 @@ class HourlyBacktester:
                 metadata["transaction_cost_totals"] = dict(transaction_cost_totals)
         if baseline_allocation:
             metadata["baseline_allocation"] = dict(baseline_allocation)
-        if self.data_source == IFIND_ASHARE:
+        if self.data_source in PROFILE_OWNED_UNIVERSE_SOURCES:
             metadata.update(
                 {
                     "market": profile.market,
@@ -1858,7 +1922,7 @@ class HourlyBacktester:
             meta["initial_pipeline"] = self.initial_pipeline
         if self.pipeline is not None:
             meta["final_pipeline"] = self.pipeline
-        if self.data_source == IFIND_ASHARE:
+        if self.data_source in PROFILE_OWNED_UNIVERSE_SOURCES:
             rejected = list(getattr(self, "rejected_orders", []) or [])
             if rejected:
                 # Count first, sample second: a consumer must be able to tell
@@ -2120,6 +2184,8 @@ class HourlyBacktester:
 
     def _annualization_periods(self) -> float | None:
         """Return the Sharpe sampling factor for the curve this run emits."""
+        if getattr(self, "source_timeframe", None) == "1d":
+            return TRADING_DAYS_PER_YEAR
         if not getattr(self, "intraday_mode", False):
             return None
         minutes = timeframe_minutes(self.source_timeframe)
@@ -2679,10 +2745,14 @@ class HourlyBacktester:
             bh_symbols = [s for s in self.symbols if s in self.all_data]
         
         bars = self.all_data
-        if self.data_source == IFIND_ASHARE:
+        if self.data_source in PROFILE_OWNED_UNIVERSE_SOURCES:
             common_start = getattr(self, "_ifind_common_start", None)
             if common_start is None:
-                common_start = self._validate_ifind_loaded_data()
+                common_start = (
+                    self._validate_jse_loaded_data()
+                    if self.data_source == YAHOO_JSE
+                    else self._validate_ifind_loaded_data()
+                )
             bars = {
                 symbol: self.all_data[symbol].loc[common_start:]
                 for symbol in self.symbols

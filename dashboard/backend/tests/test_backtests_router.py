@@ -4268,3 +4268,33 @@ def test_snapshot_cleanup_is_bounded_and_logged(monkeypatch, capsys):
 
     assert run_id not in bt._active_slots
     assert f"ERROR: live_progress.clear_timeout run={run_id}" in capsys.readouterr().out
+
+
+def test_jse_daily_runs_are_billed_one_decision_per_trading_day():
+    """A daily JSE run makes one decision a day, not the US session's seven."""
+    assert bt._pipeline_decision_bars_per_trading_day(bt.YAHOO_JSE) == 1
+
+
+def test_jse_daily_runs_may_span_a_year():
+    """One decision a day: a year of JSE bars is ~250 decisions, not ~1,750."""
+    assert bt.max_backtest_days(bt.YAHOO_JSE) == 365
+    bt._validate_backtest_params(
+        "2025-01-02", "2026-01-02", "", None, data_source=bt.YAHOO_JSE
+    )
+
+
+def test_jse_cap_still_refuses_longer_than_a_year():
+    with pytest.raises(HTTPException) as caught:
+        bt._validate_backtest_params(
+            "2025-01-01", "2026-01-03", "", None, data_source=bt.YAHOO_JSE
+        )
+    assert "max 365 days" in caught.value.detail
+
+
+@pytest.mark.parametrize("source", [None, "alpaca", "ifind_ashare", "vnpy_simulation"])
+def test_other_sources_keep_the_two_week_cap(source):
+    assert bt.max_backtest_days(source) == bt.MAX_BACKTEST_DAYS == 14
+    with pytest.raises(HTTPException):
+        bt._validate_backtest_params(
+            "2026-04-01", "2026-04-16", "", None, data_source=source
+        )

@@ -105,3 +105,52 @@ def test_alpaca_profile_records_minute_source_and_hourly_decisions():
     assert profile.execution_timeframe == "5m"
     assert profile.valuation_frequency == "5m"
     assert profile.frequency_contract == TradingFrequency.minute_source_hourly_decisions()
+
+
+# --- Daily bars (JSE / Yahoo daily source) ---------------------------------
+
+
+@pytest.mark.parametrize("value", ["1d", "1D", "day", "daily", "1day"])
+def test_daily_bar_timeframe_aliases_are_canonical(value):
+    assert normalize_bar_timeframe(value) == "1d"
+
+
+@pytest.mark.parametrize("value", ["1d", "daily", "day"])
+def test_daily_decision_frequency_is_canonical(value):
+    assert normalize_decision_frequency(value) == "1d"
+
+
+def test_all_daily_contract_is_valid():
+    contract = TradingFrequency(
+        source_timeframe="1d",
+        decision_timeframe="1d",
+        decision_frequency="1d",
+        execution_timeframe="1d",
+        valuation_frequency="1d",
+    )
+    assert contract.to_metadata()["decision_frequency"] == "1d"
+
+
+def test_daily_decisions_reject_hourly_cadence():
+    with pytest.raises(FrequencyConfigError, match="decision_frequency"):
+        TradingFrequency(
+            source_timeframe="1d",
+            decision_timeframe="1d",
+            decision_frequency="1h",
+            execution_timeframe="1d",
+            valuation_frequency="1d",
+        )
+
+
+def test_daily_source_cannot_feed_hourly_decisions():
+    with pytest.raises(FrequencyConfigError, match="coarser"):
+        TradingFrequency(source_timeframe="1d")
+
+
+def test_daily_source_is_not_an_intraday_contract():
+    with pytest.raises(FrequencyConfigError, match="finer"):
+        build_verified_intraday_contract(
+            source_timeframe="1d",
+            decision_timeframe="1d",
+            decision_frequency="1d",
+        )

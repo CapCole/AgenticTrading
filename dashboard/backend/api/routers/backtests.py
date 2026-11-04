@@ -77,6 +77,8 @@ from dashboard.backend.infrastructure.market_data.us_market_calendar import (
 )
 from dashboard.backend.infrastructure.market_data.sessions import time_in_session
 from dashboard.backend.infrastructure.market_data.profiles import (
+    PROFILE_OWNED_UNIVERSE_SOURCES,
+    YAHOO_JSE,
     LLM_DECISION_SOURCE,
     MarketProfile,
     get_market_profile,
@@ -2714,6 +2716,8 @@ def _enforce_ai_hedge_fund_window(start_date: str, end_date: str) -> None:
 PIPELINE_DECISION_BARS_PER_TRADING_DAY = 7
 _PIPELINE_DECISION_BARS_BY_SOURCE = {
     IFIND_ASHARE: ASHARE_SESSIONS_PER_TRADING_DAY,
+    # One daily bar, so one decision, per JSE trading day.
+    YAHOO_JSE: 1,
 }
 
 
@@ -3809,6 +3813,16 @@ MAX_STRATEGY_PROMPT_CHARS = 4000
 # Bounds ``end - start``. ``end_date`` is a traded day, so the longest legal
 # window spans 15 calendar days (at most 11 weekdays).
 MAX_BACKTEST_DAYS = 14
+#: Daily-bar sources make one decision a trading day, not ~7, so the calendar
+#: bound that keeps an hourly run near 70 decisions allows a year here (~250).
+#: LLM spend stays bounded by _enforce_pipeline_llm_window, which counts the
+#: same one-bar-a-day cadence (_PIPELINE_DECISION_BARS_BY_SOURCE).
+_MAX_BACKTEST_DAYS_BY_SOURCE = {YAHOO_JSE: 365}
+
+
+def max_backtest_days(data_source: Optional[str]) -> int:
+    """Calendar bound on ``end - start`` for ``data_source``."""
+    return _MAX_BACKTEST_DAYS_BY_SOURCE.get(data_source or "", MAX_BACKTEST_DAYS)
 MAX_PIPELINE_STEPS = 20
 MAX_PIPELINE_JSON_CHARS = 32000
 MAX_BACKTEST_ASSETS = 30
@@ -3878,7 +3892,9 @@ def _normalize_backtest_assets(raw: Any) -> Optional[List[str]]:
     return cleaned
 
 
-def _validate_backtest_params(start_date, end_date, strategy_prompt, model, pipeline=None) -> None:
+def _validate_backtest_params(
+    start_date, end_date, strategy_prompt, model, pipeline=None, *, data_source=None
+) -> None:
     """Reject malformed / cost-abuse inputs before scheduling the background run.
 
     - ``model`` must look like a model id (charset + length), which rejects an
@@ -3919,11 +3935,12 @@ def _validate_backtest_params(start_date, end_date, strategy_prompt, model, pipe
     end = _parse_ymd(end_date, "end_date")
     if end < start:
         raise HTTPException(status_code=422, detail="end_date must not be before start_date.")
-    if (end - start).days > MAX_BACKTEST_DAYS:
+    max_days = max_backtest_days(data_source)
+    if (end - start).days > max_days:
         raise HTTPException(
             status_code=422,
             detail=(
-                f"Date range too large (max {MAX_BACKTEST_DAYS} days between "
+                f"Date range too large (max {max_days} days between "
                 "start_date and end_date)."
             ),
         )
@@ -4179,7 +4196,7 @@ def run_backtest_endpoint(
             raise HTTPException(status_code=422, detail="pool_mode requires stock_pool")
         if raw_assets is not None:
             raise HTTPException(status_code=422, detail="stock_pool cannot be combined with assets")
-        if data_source == IFIND_ASHARE:
+        if data_source in PROFILE_OWNED_UNIVERSE_SOURCES:
             raise HTTPException(status_code=422, detail="stock_pool requires a US market-data source")
         try:
             universe_selection = resolve_strategy_universe(stock_pool, pool_mode or "top30")
@@ -4260,7 +4277,7 @@ def run_backtest_endpoint(
     selected_assets = (
         list(universe_selection["symbols"]) if universe_selection is not None else (
             list(profile.symbols)
-            if data_source == IFIND_ASHARE
+            if data_source in PROFILE_OWNED_UNIVERSE_SOURCES
             else _normalize_backtest_assets(raw_assets)
         )
     )
@@ -4299,7 +4316,8 @@ def run_backtest_endpoint(
             # malformed all-blank pipeline would otherwise be swapped for the
             # one-step default and start a billable run instead of a 422.
             _validate_backtest_params(
-                start_date, end_date, strategy_prompt, model, requested_pipeline
+                start_date, end_date, strategy_prompt, model, requested_pipeline,
+                data_source=data_source,
             )
             blank_steps = blank_decision_step_numbers(requested_pipeline)
             if blank_steps:
@@ -4348,7 +4366,10 @@ def run_backtest_endpoint(
         # option: a body-level decision_source deliberately overrides a query
         # one, and leftover query params are exactly what that override exists
         # to neutralize. Validate, drop, then say what was dropped.
-        _validate_backtest_params(start_date, end_date, strategy_prompt, model, pipeline)
+        _validate_backtest_params(
+            start_date, end_date, strategy_prompt, model, pipeline,
+            data_source=data_source,
+        )
         ignored_llm_fields = [
             name
             for name, value in (
@@ -4374,7 +4395,9 @@ def run_backtest_endpoint(
         )
 
     # Validate before taking rate-limit capacity or scheduling the worker.
-    _validate_backtest_params(start_date, end_date, strategy_prompt, model, pipeline)
+    _validate_backtest_params(
+        start_date, end_date, strategy_prompt, model, pipeline, data_source=data_source
+    )
 
     # After the date validation above, so this never has to be a second date
     # validator, and before the rate limiter, the slot ledger and the billing

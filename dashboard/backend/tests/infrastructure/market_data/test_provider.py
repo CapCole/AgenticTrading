@@ -257,3 +257,32 @@ def test_window_provenance_marks_an_excluded_open_session():
         "open_session_excluded": False,
     }
     assert window_provenance("2026-09-11", "2026-09-11")["open_session_excluded"] is True
+
+
+# --- yahoo_jse gate and factory -------------------------------------------
+
+
+def test_yahoo_jse_is_disabled_unless_flagged(monkeypatch):
+    from dashboard.backend.infrastructure.market_data import provider as p
+
+    monkeypatch.delenv("ENABLE_YAHOO_JSE", raising=False)
+    with pytest.raises(p.MarketDataSourceDisabled, match="ENABLE_YAHOO_JSE"):
+        p.validate_market_data_source("yahoo_jse")
+
+
+def test_yahoo_jse_factory_builds_the_daily_provider(monkeypatch):
+    from dashboard.backend.infrastructure.market_data import provider as p
+    from dashboard.backend.infrastructure.market_data.yahoo_jse import YahooJseProvider
+
+    monkeypatch.setenv("ENABLE_YAHOO_JSE", "true")
+    built = p.create_market_data_provider("yahoo_jse")
+    assert isinstance(built, YahooJseProvider)
+    assert built.profile.universe == "jse_top20"
+
+
+def test_yahoo_jse_factory_refuses_an_intraday_timeframe(monkeypatch):
+    from dashboard.backend.infrastructure.market_data import provider as p
+
+    monkeypatch.setenv("ENABLE_YAHOO_JSE", "true")
+    with pytest.raises(ValueError, match="1d"):
+        p.create_market_data_provider("yahoo_jse", source_timeframe="60m")

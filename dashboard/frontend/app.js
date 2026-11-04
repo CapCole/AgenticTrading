@@ -2569,17 +2569,21 @@ function syncBacktestModelFieldMode() {
   ) !== 'pipeline';
   const isSimulation = source === 'vnpy_simulation';
   const isIFind = source === IFIND_ASHARE_SOURCE;
+  const isJse = source === YAHOO_JSE_SOURCE;
   const isRuleBased = (
     isSimulation
+    || isJse
     || (isIFind && modelSelect?.value === RULE_BASED_DECISION_SOURCE)
   );
-  const modelIsEditable = !isHostedRuntime && !isSimulation;
+  const modelIsEditable = !isHostedRuntime && !isSimulation && !isJse;
   if (modelSelect) modelSelect.hidden = !modelIsEditable;
   if (readonly) {
     readonly.hidden = modelIsEditable;
     readonly.textContent = isHostedRuntime
       ? 'AI Hedge Fund — hosted runtime, billed to your ATL Credits'
-      : 'Rule-based — simulated practice data, no AI involved';
+      : (isJse
+        ? 'Rule-based — JSE daily bars from Yahoo, no AI involved'
+        : 'Rule-based — simulated practice data, no AI involved');
   }
   if (billingGroup) billingGroup.hidden = isHostedRuntime || isRuleBased;
   syncRunBacktestInstructionPreview();
@@ -3950,9 +3954,11 @@ async function loadMarketDataFeatures() {
     const features = await API.get(`${API_BASE}/config/features`);
     window.VNPY_SIMULATION_ENABLED = features.vnpy_simulation_enabled === true;
     window.IFIND_ASHARE_ENABLED = features.ifind_ashare_enabled === true;
+    window.YAHOO_JSE_ENABLED = features.yahoo_jse_enabled === true;
   } catch (error) {
     window.VNPY_SIMULATION_ENABLED = false;
     window.IFIND_ASHARE_ENABLED = false;
+    window.YAHOO_JSE_ENABLED = false;
     console.warn('Could not load optional market-data features:', error.message);
   }
 
@@ -3978,6 +3984,17 @@ async function loadMarketDataFeatures() {
     if (select.value === 'ifind_ashare') select.value = 'alpaca';
   }
 
+  const existingJse = select.querySelector(`option[value="${YAHOO_JSE_SOURCE}"]`);
+  if (window.YAHOO_JSE_ENABLED && !existingJse) {
+    const option = document.createElement('option');
+    option.value = YAHOO_JSE_SOURCE;
+    option.textContent = 'Yahoo JSE Top 20 (daily, rule-based)';
+    select.appendChild(option);
+  } else if (!window.YAHOO_JSE_ENABLED && existingJse) {
+    existingJse.remove();
+    if (select.value === YAHOO_JSE_SOURCE) select.value = 'alpaca';
+  }
+
   syncMarketDataSourceUI();
 }
 
@@ -3997,6 +4014,8 @@ function syncMarketDataSourceUI(options = {}) {
   const isIFind = select?.value === 'ifind_ashare';
   const resetIFindDecisionSource = options?.resetIFindDecisionSource === true;
   const enteringIFind = isIFind && !window.IFIND_PREVIOUS_UI_STATE;
+  const isJse = select?.value === YAHOO_JSE_SOURCE;
+  syncYahooJseDates(isJse, startDateInput, endDateInput);
 
   if (enteringIFind) {
     const activeTab = document.querySelector('.universe-tab.active');
@@ -4012,7 +4031,7 @@ function syncMarketDataSourceUI(options = {}) {
   }
 
   if (ifindUniverse) ifindUniverse.hidden = !isIFind;
-  if (universeTabs) universeTabs.hidden = isIFind;
+  if (universeTabs) universeTabs.hidden = isIFind || isJse;
 
   if (isIFind) {
     renderIFindAshareUniverse({
@@ -4047,17 +4066,40 @@ function syncMarketDataSourceUI(options = {}) {
   }
 
   if (modelSelect && !isIFind) {
-    modelSelect.disabled = isSimulation;
-    modelSelect.setAttribute('aria-disabled', String(isSimulation));
+    modelSelect.disabled = isSimulation || isJse;
+    modelSelect.setAttribute('aria-disabled', String(isSimulation || isJse));
   }
   if (modelSelectHint && !isIFind) {
     modelSelectHint.textContent = isSimulation
       ? 'vn.py simulation uses rule-based decisions.'
-      : 'Choose a provider-compatible model for this run.';
+      : (isJse
+        ? 'JSE runs here are rule-based on daily bars (up to a year); LLM runs use the API or CLI.'
+        : 'Choose a provider-compatible model for this run.');
   }
   if (notice) notice.hidden = !isSimulation;
   if (ifindNotice) ifindNotice.hidden = !isIFind;
   syncBacktestModelFieldMode();
+}
+
+/**
+ * Entering the JSE source applies a full-year window (its cap is a year, the
+ * US default two weeks would be ~10 daily decisions); leaving restores the
+ * dates the user had, so a US window is never silently replaced.
+ */
+function syncYahooJseDates(isJse, startDateInput, endDateInput) {
+  if (isJse && !window.YAHOO_JSE_PREVIOUS_DATES) {
+    window.YAHOO_JSE_PREVIOUS_DATES = {
+      start: startDateInput?.value || '',
+      end: endDateInput?.value || '',
+    };
+    if (startDateInput) startDateInput.value = YAHOO_JSE_START_DATE;
+    if (endDateInput) endDateInput.value = YAHOO_JSE_END_DATE;
+  } else if (!isJse && window.YAHOO_JSE_PREVIOUS_DATES) {
+    const { start, end } = window.YAHOO_JSE_PREVIOUS_DATES;
+    if (startDateInput) startDateInput.value = start;
+    if (endDateInput) endDateInput.value = end;
+    window.YAHOO_JSE_PREVIOUS_DATES = null;
+  }
 }
 
 function renderBacktestDataSourceBadge(run) {
@@ -4070,6 +4112,7 @@ function renderBacktestDataSourceBadge(run) {
 
   const isSimulation = run.data_source === 'vnpy_simulation';
   const isIFind = run.data_source === 'ifind_ashare';
+  const isJse = run.data_source === 'yahoo_jse';
   const frequency = run.frequency_contract;
   const sourceTimeframe = frequency?.source_timeframe;
   const decisionCadence = frequency?.decision_frequency === '1h'
@@ -4077,7 +4120,7 @@ function renderBacktestDataSourceBadge(run) {
     : frequency?.decision_frequency;
   badge.textContent = isIFind
     ? 'iFinD China A-Shares · 60m'
-    : (isSimulation
+    : isJse ? 'Yahoo JSE · daily' : (isSimulation
       ? 'vn.py simulated data'
       : (sourceTimeframe && decisionCadence
         ? `Alpaca · ${sourceTimeframe} source · ${decisionCadence} decisions`
@@ -7338,6 +7381,20 @@ const ASSET_UNIVERSES = {
 };
 
 const IFIND_ASHARE_SOURCE = 'ifind_ashare';
+// Yahoo JSE daily research source (rule-based in this modal; LLM runs go
+// through the API or CLI). Mirrors infrastructure/market_data/profiles.py and
+// api/routers/backtests.py::max_backtest_days.
+const YAHOO_JSE_SOURCE = 'yahoo_jse';
+const YAHOO_JSE_TIMEFRAME = '1d';
+const YAHOO_JSE_UNIVERSE = 'jse_top20';
+const YAHOO_JSE_MAX_BACKTEST_DAYS = 365;
+const YAHOO_JSE_START_DATE = '2025-01-02';
+const YAHOO_JSE_END_DATE = '2025-12-31';
+const YAHOO_JSE_SYMBOLS = [
+  'NPN.JO', 'PRX.JO', 'FSR.JO', 'SBK.JO', 'CPI.JO', 'ABG.JO', 'NED.JO',
+  'MTN.JO', 'VOD.JO', 'SOL.JO', 'AGL.JO', 'GLN.JO', 'SHP.JO', 'BTI.JO',
+  'CFR.JO', 'GFI.JO', 'ANG.JO', 'IMP.JO', 'BVT.JO', 'WHL.JO',
+];
 const IFIND_ASHARE_TIMEFRAME = '60m';
 const IFIND_ASHARE_START_DATE = '2026-04-01';
 const IFIND_ASHARE_END_DATE = '2026-04-15';
@@ -7621,7 +7678,9 @@ function renderSelectedUniversePreview() {
 }
 
 function getSelectedStockPoolRequest() {
-    if (document.getElementById('marketDataSourceSelect')?.value === IFIND_ASHARE_SOURCE
+    const stockPoolSource = document.getElementById('marketDataSourceSelect')?.value;
+    if (stockPoolSource === IFIND_ASHARE_SOURCE
+        || stockPoolSource === YAHOO_JSE_SOURCE
         || !document.getElementById('builtinTab')?.classList.contains('active')) return null;
     const preset = ASSET_UNIVERSES[selectedUniverse];
     return preset?.stockPool
@@ -7783,6 +7842,7 @@ function getSelectedAssets() {
     if (dataSource === IFIND_ASHARE_SOURCE) {
         return getIFindUniverseProfile().assets.map(({ symbol }) => symbol);
     }
+    if (dataSource === YAHOO_JSE_SOURCE) return [...YAHOO_JSE_SYMBOLS];
 
     const builtinTab = document.getElementById('builtinTab');
     const isBuiltin = builtinTab?.classList.contains('active');
@@ -10183,6 +10243,7 @@ function backtestRequestPipeline(agent) {
 function runBacktestModalDecisionSource() {
     const dataSource = document.getElementById('marketDataSourceSelect')?.value || 'alpaca';
     if (dataSource === 'vnpy_simulation') return RULE_BASED_DECISION_SOURCE;
+    if (dataSource === YAHOO_JSE_SOURCE) return RULE_BASED_DECISION_SOURCE;
     if (dataSource !== IFIND_ASHARE_SOURCE) return LLM_DECISION_SOURCE;
     const profile = getIFindUniverseProfile(getSelectedIFindUniverse());
     const allowsLLM = profile?.allowedDecisionSources.includes(LLM_DECISION_SOURCE) === true;
@@ -10892,6 +10953,10 @@ async function runBacktest() {
     // the modal has closed, and the helper copy used to actively invite the
     // mistake ("Change it to any range you have data for").
     const MAX_BACKTEST_DAYS = 14;
+    const isJse = (
+        document.getElementById('marketDataSourceSelect')?.value === YAHOO_JSE_SOURCE
+    );
+    const maxBacktestDays = isJse ? YAHOO_JSE_MAX_BACKTEST_DAYS : MAX_BACKTEST_DAYS;
     const spanDays = Math.round(
         (Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${startDate}T00:00:00Z`)) / 86400000,
     );
@@ -10899,11 +10964,11 @@ async function runBacktest() {
         showModalError('The end date must be on or after the start date.');
         return;
     }
-    if (Number.isFinite(spanDays) && spanDays > MAX_BACKTEST_DAYS) {
+    if (Number.isFinite(spanDays) && spanDays > maxBacktestDays) {
         showModalError(
             // Worded as a distance, not a length: the end date is itself a
             // traded day, so the longest legal window spans one day more.
-            `Pick an end date at most ${MAX_BACKTEST_DAYS} days after the start — that one is ${spanDays} days after it.`,
+            `Pick an end date at most ${maxBacktestDays} days after the start — that one is ${spanDays} days after it.`,
         );
         return;
     }
@@ -11004,7 +11069,7 @@ async function runBacktest() {
         : null;
     const universeLabel = isIFind
         ? selectedIFindProfile.name
-        : (document.getElementById('builtinTab')?.classList.contains('active')
+        : isJse ? 'JSE Top 20' : (document.getElementById('builtinTab')?.classList.contains('active')
             ? (ASSET_UNIVERSES[selectedUniverse]?.name || selectedUniverse)
             : describeUniverseFromAssets(assets));
     
@@ -11040,8 +11105,8 @@ async function runBacktest() {
         universeLabel,
         universeKey: selectedIFindUniverse,
         symbolCount: assets.length,
-        timeframe: isIFind ? IFIND_ASHARE_TIMEFRAME : '60m',
-        frequencyContract: isIFind || isSimulation
+        timeframe: isIFind ? IFIND_ASHARE_TIMEFRAME : (isJse ? YAHOO_JSE_TIMEFRAME : '60m'),
+        frequencyContract: isIFind || isSimulation || isJse
             ? null
             : {
                 source_timeframe: '5m',
@@ -11064,7 +11129,7 @@ async function runBacktest() {
             : selectedProviderId,
         marketDataLabel: isIFind
             ? 'iFinD A-Share'
-            : (isSimulation ? 'vn.py Simulation' : 'Alpaca · 5m source'),
+            : isJse ? 'Yahoo JSE · daily' : (isSimulation ? 'vn.py Simulation' : 'Alpaca · 5m source'),
         dataSource,
         startedAt: new Date().toISOString(),
     };
@@ -11072,7 +11137,7 @@ async function runBacktest() {
     window.ACTIVE_BACKTEST_DATA_SOURCE = dataSource;
     renderBacktestDataSourceBadge({
         data_source: dataSource,
-        timeframe: isIFind ? IFIND_ASHARE_TIMEFRAME : null,
+        timeframe: isIFind ? IFIND_ASHARE_TIMEFRAME : (isJse ? YAHOO_JSE_TIMEFRAME : null),
         frequency_contract: launchConfigBase.frequencyContract,
     });
 
@@ -11139,6 +11204,12 @@ async function runBacktest() {
             params.set('timeframe', IFIND_ASHARE_TIMEFRAME);
             payload.universe = selectedIFindUniverse;
             payload.timeframe = '60m';
+        }
+        if (isJse) {
+            params.set('universe', YAHOO_JSE_UNIVERSE);
+            params.set('timeframe', YAHOO_JSE_TIMEFRAME);
+            payload.universe = YAHOO_JSE_UNIVERSE;
+            payload.timeframe = YAHOO_JSE_TIMEFRAME;
         }
         if (
             decisionSource === LLM_DECISION_SOURCE

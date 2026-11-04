@@ -186,6 +186,9 @@ os.environ.pop("IFIND_BASE_URL", None)
 # crossing a 除权除息 date refuses or runs, so a developer with it exported sees
 # the refusal tests pass vacuously.
 os.environ.pop("IFIND_ALLOW_CORPORATE_ACTION_GAPS", None)
+# Feature gate: an exported value would change /config/features and source
+# validation under every test that does not set it itself.
+os.environ.pop("ENABLE_YAHOO_JSE", None)
 
 # Same reason, one layer down: this one changes how many times the empty-reply
 # retry loop re-asks the failing output ceiling before the rescue call. A

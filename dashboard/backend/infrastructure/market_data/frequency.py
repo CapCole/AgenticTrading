@@ -22,7 +22,12 @@ class FrequencyConfigError(ValueError):
     """Raised when a frequency value is unknown or internally inconsistent."""
 
 
-SUPPORTED_BAR_TIMEFRAMES = ("1m", "5m", "60m")
+SUPPORTED_BAR_TIMEFRAMES = ("1m", "5m", "60m", "1d")
+
+#: Nominal span of a daily bar. Daily bars are only ever used whole (a daily
+#: source never aggregates and never feeds an intraday contract), so this value
+#: serves ordering and comparison, not session arithmetic.
+DAILY_BAR_MINUTES = 24 * 60
 
 _BAR_TIMEFRAME_ALIASES = {
     "1m": "1m",
@@ -40,6 +45,10 @@ _BAR_TIMEFRAME_ALIASES = {
     "1hour": "60m",
     "hour": "60m",
     "hourly": "60m",
+    "1d": "1d",
+    "1day": "1d",
+    "day": "1d",
+    "daily": "1d",
 }
 
 _DECISION_FREQUENCY_ALIASES = {
@@ -49,6 +58,10 @@ _DECISION_FREQUENCY_ALIASES = {
     "1hour": "1h",
     "hour": "1h",
     "hourly": "1h",
+    "1d": "1d",
+    "1day": "1d",
+    "day": "1d",
+    "daily": "1d",
 }
 
 
@@ -80,19 +93,19 @@ def normalize_decision_frequency(value: str) -> str:
         return _DECISION_FREQUENCY_ALIASES[cleaned]
     except KeyError as exc:
         raise FrequencyConfigError(
-            f"Unsupported decision frequency {value!r}; expected '1h'"
+            f"Unsupported decision frequency {value!r}; expected '1h' or '1d'"
         ) from exc
 
 
 def timeframe_minutes(value: str) -> int:
     """Return the duration, in minutes, of a canonical bar timeframe."""
     canonical = normalize_bar_timeframe(value)
-    return {"1m": 1, "5m": 5, "60m": 60}[canonical]
+    return {"1m": 1, "5m": 5, "60m": 60, "1d": DAILY_BAR_MINUTES}[canonical]
 
 
 def decision_frequency_minutes(value: str) -> int:
     """Return the duration, in minutes, of a canonical decision cadence."""
-    return {"1h": 60}[normalize_decision_frequency(value)]
+    return {"1h": 60, "1d": DAILY_BAR_MINUTES}[normalize_decision_frequency(value)]
 
 
 def verify_source_timeframe(

@@ -222,3 +222,59 @@ def test_resolve_decision_source_rejects_unsupported_values(universe, requested)
         match=rf"{IFIND_ASHARE}.*{universe}.*{requested}",
     ):
         resolve_decision_source(profile, requested)
+
+
+# --- JSE (Yahoo daily) -------------------------------------------------------
+
+
+def test_jse_profile_is_daily_zar_and_index_free():
+    from dashboard.backend.infrastructure.market_data.profiles import (
+        JSE_TOP20,
+        YAHOO_JSE,
+    )
+
+    profile = get_market_profile(YAHOO_JSE)
+    assert profile.universe == JSE_TOP20
+    assert profile.market == "ZA"
+    assert profile.timezone == "Africa/Johannesburg"
+    assert profile.frequency_contract.to_metadata() == {
+        "source_timeframe": "1d",
+        "decision_timeframe": "1d",
+        "decision_frequency": "1d",
+        "execution_timeframe": "1d",
+        "valuation_frequency": "1d",
+    }
+    assert (profile.native_currency, profile.reporting_currency) == ("ZAR", "USD")
+    assert profile.index_baseline_enabled is False
+    assert profile.benchmark == "equal_weight_buyhold"
+    assert profile.lot_size == 1
+    assert profile.t_plus_one_enabled is False
+    assert len(profile.symbols) == 20
+    assert all(symbol.endswith(".JO") for symbol in profile.symbols)
+
+
+def test_jse_profile_defaults_to_rules_so_nothing_bills_by_default():
+    from dashboard.backend.infrastructure.market_data.profiles import YAHOO_JSE
+
+    profile = get_market_profile(YAHOO_JSE)
+    assert profile.default_decision_source == "rule_based"
+    assert "llm" in profile.allowed_decision_sources
+
+
+def test_jse_costs_charge_securities_transfer_tax_on_buys_only():
+    from dashboard.backend.infrastructure.market_data.profiles import (
+        JSE_TRANSACTION_COST_PROFILE,
+    )
+
+    costs = JSE_TRANSACTION_COST_PROFILE
+    assert costs.currency == "ZAR"
+    assert costs.stamp_duty_buy_rate == 0.0025
+    assert costs.stamp_duty_sell_rate == 0.0
+    assert costs.to_metadata()["stamp_duty_buy_rate"] == 0.0025
+
+
+def test_a_buy_side_rate_stays_out_of_existing_profiles_metadata():
+    # Persisted runs predate the field: a zero buy rate must not change them.
+    assert "stamp_duty_buy_rate" not in get_market_profile(
+        "ifind_ashare"
+    ).transaction_cost_profile.to_metadata()

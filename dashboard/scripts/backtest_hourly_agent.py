@@ -114,6 +114,8 @@ from dashboard.backend.infrastructure.market_data.provider import (
 )
 from dashboard.backend.infrastructure.market_data.profiles import (
     LLM_DECISION_SOURCE,
+    PROFILE_OWNED_UNIVERSE_SOURCES,
+    YAHOO_JSE,
     RULE_BASED_DECISION_SOURCE,
     get_market_profile,
     resolve_decision_source,
@@ -299,7 +301,7 @@ def main():
     parser.add_argument(
         "--data-source",
         default=ALPACA,
-        choices=[ALPACA, VNPY_SIMULATION, IFIND_ASHARE],
+        choices=[ALPACA, VNPY_SIMULATION, IFIND_ASHARE, YAHOO_JSE],
         help="Market-data provider (default: alpaca)",
     )
     parser.add_argument(
@@ -327,7 +329,7 @@ def main():
     args = parser.parse_args()
     universe_selection = None
     if args.stock_pool is not None or args.pool_mode is not None or args.universe_selection_file:
-        if args.assets is not None or args.data_source == IFIND_ASHARE:
+        if args.assets is not None or args.data_source in PROFILE_OWNED_UNIVERSE_SOURCES:
             parser.error("stock pools require a US source and cannot be combined with --assets")
         try:
             if args.universe_selection_file:
@@ -490,7 +492,7 @@ def main():
     effective_symbols = (
         list(universe_selection["symbols"]) if universe_selection is not None else (
             list(market_profile.symbols)
-            if args.data_source == IFIND_ASHARE
+            if args.data_source in PROFILE_OWNED_UNIVERSE_SOURCES
             else (symbols or list(DJIA_30))
         )
     )

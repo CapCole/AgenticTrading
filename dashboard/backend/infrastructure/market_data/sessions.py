@@ -45,6 +45,15 @@ _CN_SESSIONS: tuple[tuple[time, time], ...] = (
     (time(9, 30), time(11, 30)),
     (time(13, 0), time(15, 0)),
 )
+#: JSE equities: continuous trading from 09:00, closing auction to 17:00 SAST.
+#: A daily bar is stamped at the 17:00 close.
+_ZA_SESSIONS: tuple[tuple[time, time], ...] = ((time(9, 0), time(17, 0)),)
+
+#: Markets with their own sessions; anything else trades the US session.
+_NON_US_SESSIONS: dict[str, tuple[tuple[time, time], ...]] = {
+    "CN": _CN_SESSIONS,
+    "ZA": _ZA_SESSIONS,
+}
 
 #: The US cash close on an NYSE early-close day
 #: (``us_market_calendar.nyse_early_closes``).
@@ -53,14 +62,14 @@ EARLY_CLOSE_TIME: time = time(13, 0)
 
 def _trades_us_sessions(market: object) -> bool:
     """Whether ``market`` trades the US cash session. Unknown -> US."""
-    return canonical_market(market) != "CN"
+    return canonical_market(market) not in _NON_US_SESSIONS
 
 
 def session_windows(market: object) -> tuple[tuple[time, time], ...]:
     """The market's trading sessions on a full day, in its own local time.
     Unknown -> US. For a particular date, use :func:`day_session_windows`:
     an NYSE early close ends the US session at 13:00."""
-    return _US_SESSIONS if _trades_us_sessions(market) else _CN_SESSIONS
+    return _NON_US_SESSIONS.get(canonical_market(market), _US_SESSIONS)
 
 
 def day_session_windows(day: date, market: object) -> tuple[tuple[time, time], ...]:

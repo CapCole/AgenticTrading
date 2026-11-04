@@ -43,6 +43,11 @@ DEFAULT = js_string_const("DEFAULT_STARTER_INSTRUCTION")
 _LIFTED = "\n".join(
     [
         js_const("IFIND_ASHARE_SOURCE"),
+        js_const("YAHOO_JSE_SOURCE"),
+        js_const("YAHOO_JSE_TIMEFRAME"),
+        js_const("YAHOO_JSE_UNIVERSE"),
+        js_const("YAHOO_JSE_MAX_BACKTEST_DAYS"),
+        js_const("YAHOO_JSE_SYMBOLS"),
         js_const("RULE_BASED_DECISION_SOURCE"),
         js_const("LLM_DECISION_SOURCE"),
         f"const DEFAULT_STARTER_INSTRUCTION = {json.dumps(DEFAULT)};",

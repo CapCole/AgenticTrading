@@ -15,12 +15,12 @@ import pytz
 from . import bar_cache
 from .alpaca_bars import AlpacaDataLoader
 from .frequency import normalize_bar_timeframe
-from .profiles import ALPACA, IFIND_ASHARE, VNPY_SIMULATION
+from .profiles import ALPACA, IFIND_ASHARE, VNPY_SIMULATION, YAHOO_JSE
 from .sessions import DEFAULT_MARKET, timezone_for_market
 from .us_market_calendar import trading_weeks_back
 
 
-SUPPORTED_DATA_SOURCES = (ALPACA, VNPY_SIMULATION, IFIND_ASHARE)
+SUPPORTED_DATA_SOURCES = (ALPACA, VNPY_SIMULATION, IFIND_ASHARE, YAHOO_JSE)
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
@@ -242,6 +242,11 @@ def ifind_ashare_enabled() -> bool:
     return _feature_enabled("ENABLE_IFIND_ASHARE")
 
 
+def yahoo_jse_enabled() -> bool:
+    """Return whether the Yahoo JSE daily research source is enabled."""
+    return _feature_enabled("ENABLE_YAHOO_JSE")
+
+
 def validate_market_data_source(data_source: str) -> None:
     """Validate the source name and feature gate without creating a client."""
     if data_source not in SUPPORTED_DATA_SOURCES:
@@ -256,6 +261,10 @@ def validate_market_data_source(data_source: str) -> None:
         raise MarketDataSourceDisabled(
             "iFinD A-share market data is disabled; "
             "set ENABLE_IFIND_ASHARE=true"
+        )
+    if data_source == YAHOO_JSE and not yahoo_jse_enabled():
+        raise MarketDataSourceDisabled(
+            "Yahoo JSE market data is disabled; set ENABLE_YAHOO_JSE=true"
         )
 
 
@@ -315,6 +324,16 @@ def create_market_data_provider(
         from .ifind_ashare import IFindAshareProvider
 
         return IFindAshareProvider(profile=profile)
+
+    if data_source == YAHOO_JSE:
+        if requested_timeframe != profile.timeframe:
+            raise ValueError(
+                "Yahoo JSE provider supports only daily bars "
+                f"({profile.timeframe!r})"
+            )
+        from .yahoo_jse import YahooJseProvider
+
+        return YahooJseProvider(profile=profile)
 
     if requested_timeframe != profile.timeframe:
         raise ValueError(

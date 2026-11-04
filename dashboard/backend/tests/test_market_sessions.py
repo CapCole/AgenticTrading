@@ -599,3 +599,42 @@ def test_leaderboard_baselines_read_the_board_bars_as_open_stamped(strategy_key)
         for point in curve
     ]
     assert clocks[0] == "10:00" and clocks[-1] == "15:00"
+
+
+# --- JSE (ZA) sessions ------------------------------------------------------
+
+
+def _sast(hhmm: str):
+    from datetime import datetime
+
+    import pytz
+
+    hour, minute = (int(part) for part in hhmm.split(":"))
+    return pytz.timezone("Africa/Johannesburg").localize(
+        datetime(2025, 3, 12, hour, minute)
+    )
+
+
+def test_za_trades_the_jse_session_not_new_york():
+    from datetime import time as _time
+
+    assert sessions.session_windows("ZA") == ((_time(9, 0), _time(17, 0)),)
+    assert sessions.session_windows(" za ") == sessions.session_windows("ZA")
+
+
+def test_za_close_stamped_daily_bar_is_in_session_and_is_the_close():
+    stamp = _sast("17:00")
+    tz = "Africa/Johannesburg"
+    assert sessions.is_in_session(stamp, market="ZA", timezone=tz)
+    assert sessions.is_session_close(stamp, market="ZA", timezone=tz)
+
+
+def test_za_ignores_nyse_early_closes():
+    from datetime import date as _date, time as _time
+
+    # Day after US Thanksgiving: an NYSE half day, a normal JSE day.
+    assert sessions.session_close_time(_date(2025, 11, 28), "ZA") == _time(17, 0)
+
+
+def test_unknown_market_still_falls_back_to_us():
+    assert sessions.session_windows("XX") == sessions.session_windows("US")

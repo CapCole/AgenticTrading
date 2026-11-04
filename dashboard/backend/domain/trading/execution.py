@@ -389,11 +389,12 @@ def calculate_transaction_costs(
         ),
         _round_money(Decimal(str(transaction_cost_profile.minimum_commission))),
     )
-    stamp_duty = Decimal("0")
-    if normalized_side == "sell":
-        stamp_duty = _round_money(
-            gross_value * Decimal(str(transaction_cost_profile.stamp_duty_sell_rate))
-        )
+    stamp_duty_rate = (
+        transaction_cost_profile.stamp_duty_sell_rate
+        if normalized_side == "sell"
+        else getattr(transaction_cost_profile, "stamp_duty_buy_rate", 0.0)
+    )
+    stamp_duty = _round_money(gross_value * Decimal(str(stamp_duty_rate)))
     transfer_fee = _round_money(
         gross_value * Decimal(str(transaction_cost_profile.transfer_fee_rate))
     )

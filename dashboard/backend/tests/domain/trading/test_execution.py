@@ -1326,3 +1326,24 @@ def test_symbol_outside_the_rule_calendar_is_rejected_not_raised():
     assert event["reason"] == "market_rule_unavailable"
     # No rule means no audit to attach; the row must not claim one.
     assert "market_rule_date" not in event
+
+
+def test_jse_buy_pays_securities_transfer_tax_and_sell_does_not():
+    from dashboard.backend.infrastructure.market_data.profiles import (
+        JSE_TRANSACTION_COST_PROFILE,
+    )
+
+    buy = calculate_transaction_costs(
+        side="buy",
+        reference_price=100.0,
+        shares=10,
+        transaction_cost_profile=JSE_TRANSACTION_COST_PROFILE,
+    )
+    sell = calculate_transaction_costs(
+        side="sell",
+        reference_price=100.0,
+        shares=10,
+        transaction_cost_profile=JSE_TRANSACTION_COST_PROFILE,
+    )
+    assert buy["stamp_duty"] == round(buy["gross_value"] * 0.0025, 2)
+    assert sell["stamp_duty"] == 0.0

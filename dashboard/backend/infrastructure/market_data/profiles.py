@@ -16,6 +16,9 @@ from dashboard.backend.infrastructure.market_data.frequency import (
 ALPACA = "alpaca"
 VNPY_SIMULATION = "vnpy_simulation"
 IFIND_ASHARE = "ifind_ashare"
+YAHOO_JSE = "yahoo_jse"
+#: Sources whose universe is fixed by the profile, never chosen by the caller.
+PROFILE_OWNED_UNIVERSE_SOURCES = ("ifind_ashare", YAHOO_JSE)
 
 RULE_BASED_DECISION_SOURCE = "rule_based"
 LLM_DECISION_SOURCE = "llm"
@@ -74,6 +77,8 @@ class TransactionCostProfile:
     buy_slippage_rate: float
     sell_slippage_rate: float
     price_tick: float
+    #: Tax charged on buys (JSE Securities Transfer Tax). Zero elsewhere.
+    stamp_duty_buy_rate: float = 0.0
 
     def __post_init__(self) -> None:
         if not str(self.version).strip():
@@ -84,6 +89,7 @@ class TransactionCostProfile:
             "commission_rate",
             "minimum_commission",
             "stamp_duty_sell_rate",
+            "stamp_duty_buy_rate",
             "transfer_fee_rate",
             "buy_slippage_rate",
             "sell_slippage_rate",
@@ -97,7 +103,7 @@ class TransactionCostProfile:
 
     def to_metadata(self) -> dict[str, object]:
         """Return a stable JSON-safe representation for run metadata."""
-        return {
+        metadata: dict[str, object] = {
             "version": self.version,
             "currency": self.currency,
             "commission_rate": self.commission_rate,
@@ -108,6 +114,10 @@ class TransactionCostProfile:
             "sell_slippage_rate": self.sell_slippage_rate,
             "price_tick": self.price_tick,
         }
+        # Only when set: runs persisted before the field existed stay identical.
+        if self.stamp_duty_buy_rate:
+            metadata["stamp_duty_buy_rate"] = self.stamp_duty_buy_rate
+        return metadata
 
 
 ASHARE_TRANSACTION_COST_PROFILE = TransactionCostProfile(
@@ -120,6 +130,31 @@ ASHARE_TRANSACTION_COST_PROFILE = TransactionCostProfile(
     buy_slippage_rate=0.0005,
     sell_slippage_rate=0.0005,
     price_tick=0.01,
+)
+
+
+#: EasyEquities-style JSE costs, rands. Estimates; check against the broker's
+#: current fee schedule. Commission is 0.25% plus 15% VAT, STT is 0.25% on
+#: buys, levies are ~0.01% both sides, slippage 0.1% each way.
+JSE_TRANSACTION_COST_PROFILE = TransactionCostProfile(
+    version="za-jse-easyequities-estimate-2026-11",
+    currency="ZAR",
+    commission_rate=0.002875,
+    minimum_commission=0.0,
+    stamp_duty_sell_rate=0.0,
+    stamp_duty_buy_rate=0.0025,
+    transfer_fee_rate=0.0001,
+    buy_slippage_rate=0.001,
+    sell_slippage_rate=0.001,
+    price_tick=0.01,
+)
+
+JSE_TOP20 = "jse_top20"
+#: Liquid JSE large caps on Yahoo Finance (``.JO`` suffix).
+JSE_TOP20_SYMBOLS = (
+    "NPN.JO", "PRX.JO", "FSR.JO", "SBK.JO", "CPI.JO", "ABG.JO", "NED.JO",
+    "MTN.JO", "VOD.JO", "SOL.JO", "AGL.JO", "GLN.JO", "SHP.JO", "BTI.JO",
+    "CFR.JO", "GFI.JO", "ANG.JO", "IMP.JO", "BVT.JO", "WHL.JO",
 )
 
 
@@ -271,6 +306,29 @@ _MARKET_PROFILES = {
         lot_size=100,
         transaction_cost_profile=ASHARE_TRANSACTION_COST_PROFILE,
     ),
+    (YAHOO_JSE, JSE_TOP20): MarketProfile(
+        data_source=YAHOO_JSE,
+        market="ZA",
+        universe=JSE_TOP20,
+        timezone="Africa/Johannesburg",
+        timeframe="1d",
+        symbols=JSE_TOP20_SYMBOLS,
+        benchmark="equal_weight_buyhold",
+        default_decision_source=RULE_BASED_DECISION_SOURCE,
+        allowed_decision_sources=(
+            RULE_BASED_DECISION_SOURCE,
+            LLM_DECISION_SOURCE,
+        ),
+        index_baseline_enabled=False,
+        native_currency="ZAR",
+        reporting_currency="USD",
+        t_plus_one_enabled=False,
+        transaction_cost_profile=JSE_TRANSACTION_COST_PROFILE,
+        source_timeframe="1d",
+        decision_frequency="1d",
+        execution_timeframe="1d",
+        valuation_frequency="1d",
+    ),
 }
 
 
@@ -278,6 +336,7 @@ _DEFAULT_UNIVERSES = {
     ALPACA: "djia_30",
     VNPY_SIMULATION: "djia_30",
     IFIND_ASHARE: A_SHARE_DEMO_6,
+    YAHOO_JSE: JSE_TOP20,
 }
 
 

@@ -109,6 +109,7 @@ def reset_backtest_state(monkeypatch):
 
 
 def test_features_endpoint_reports_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("ENABLE_YAHOO_JSE", raising=False)
     monkeypatch.delenv("ENABLE_VNPY_SIMULATION", raising=False)
     monkeypatch.delenv("ENABLE_IFIND_ASHARE", raising=False)
 
@@ -118,10 +119,12 @@ def test_features_endpoint_reports_disabled_by_default(monkeypatch):
     assert response.json() == {
         "vnpy_simulation_enabled": False,
         "ifind_ashare_enabled": False,
+        "yahoo_jse_enabled": False,
     }
 
 
 def test_features_endpoint_reports_enabled(monkeypatch):
+    monkeypatch.delenv("ENABLE_YAHOO_JSE", raising=False)
     monkeypatch.setenv("ENABLE_VNPY_SIMULATION", "true")
     monkeypatch.delenv("ENABLE_IFIND_ASHARE", raising=False)
 
@@ -131,10 +134,12 @@ def test_features_endpoint_reports_enabled(monkeypatch):
     assert response.json() == {
         "vnpy_simulation_enabled": True,
         "ifind_ashare_enabled": False,
+        "yahoo_jse_enabled": False,
     }
 
 
 def test_features_endpoint_reports_ifind_gate_without_token_status(monkeypatch):
+    monkeypatch.delenv("ENABLE_YAHOO_JSE", raising=False)
     monkeypatch.delenv("ENABLE_VNPY_SIMULATION", raising=False)
     monkeypatch.setenv("ENABLE_IFIND_ASHARE", "true")
     monkeypatch.delenv("IFIND_ACCESS_TOKEN", raising=False)
@@ -145,6 +150,7 @@ def test_features_endpoint_reports_ifind_gate_without_token_status(monkeypatch):
     assert response.json() == {
         "vnpy_simulation_enabled": False,
         "ifind_ashare_enabled": True,
+        "yahoo_jse_enabled": False,
     }
     assert "token" not in response.text.lower()
 
@@ -706,3 +712,17 @@ def test_cli_rejects_universe_that_does_not_match_ifind_profile(monkeypatch, cap
 
     assert exc_info.value.code == 2
     assert A_SHARE_DEMO_6 in capsys.readouterr().err
+
+
+def test_features_endpoint_reports_the_yahoo_jse_gate(monkeypatch):
+    monkeypatch.delenv("ENABLE_VNPY_SIMULATION", raising=False)
+    monkeypatch.delenv("ENABLE_IFIND_ASHARE", raising=False)
+    monkeypatch.setenv("ENABLE_YAHOO_JSE", "true")
+
+    response = TestClient(app).get("/config/features")
+
+    assert response.json() == {
+        "vnpy_simulation_enabled": False,
+        "ifind_ashare_enabled": False,
+        "yahoo_jse_enabled": True,
+    }
