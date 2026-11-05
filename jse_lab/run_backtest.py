@@ -22,6 +22,8 @@ def main():
     p.add_argument("--rebalance", type=int, default=5, help="trading days between decisions")
     p.add_argument("--top-n", type=int, default=5)
     p.add_argument("--no-anonymize", action="store_true")
+    p.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"], default=None,
+                   help="LLM thinking effort (default: CLAUDE_EFFORT or medium)")
     p.add_argument("--refresh", action="store_true", help="re-download prices")
     a = p.parse_args()
 
@@ -30,12 +32,15 @@ def main():
     opens, closes = load_prices(tickers, a.start, a.end, refresh=a.refresh)
 
     universe = [t for t in closes.columns if t != BENCHMARK]
-    agent = make_agent(a.agent, top_n=a.top_n, anonymize=not a.no_anonymize, run_name=a.agent)
+    agent = make_agent(a.agent, top_n=a.top_n, anonymize=not a.no_anonymize, run_name=a.agent,
+                       effort=a.effort)
     curve, trades, costs = run_backtest(agent, opens[universe], closes[universe], cfg)
 
     results = {"agent": metrics(curve, cfg.risk_free_rate)}
     results["agent"]["total_costs"] = round(costs, 2)
     results["agent"]["num_trades"] = len(trades)
+    if hasattr(agent, "stats"):  # LLM only: API calls, cache hits, cut-off or declined answers
+        results["agent"]["llm"] = agent.stats
     if BENCHMARK in closes.columns:
         bh, _, _ = run_backtest(BuyAndHoldAgent(BENCHMARK), opens[[BENCHMARK]],
                                 closes[[BENCHMARK]], cfg)

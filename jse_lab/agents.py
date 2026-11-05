@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import re
+import warnings
 from pathlib import Path
 
 from features import snapshot
@@ -69,29 +70,62 @@ Respond with ONLY a JSON object, no markdown:
 {{"weights": {{"ASSET": 0.1}}, "reasoning": "one or two sentences"}}"""
 
 
+#: Room for Claude's thinking plus the JSON answer. Thinking counts toward this cap,
+#: so 1,000 tokens could be used up before any answer was written.
+MAX_TOKENS = 8000
+EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+DEFAULT_EFFORT = "medium"  # override with CLAUDE_EFFORT in .env
+#: On a policy decline, the API re-runs the request on a model it picks (server-side).
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
+COMPLETE = "end_turn"
+
+
 class LLMAgent:
-    """Claude-powered agent. Decisions are cached on disk so reruns don't cost API calls.
+    """Claude-powered agent. Complete decisions are cached on disk so reruns don't cost API calls.
 
     anonymize=True hides ticker names and dates. Claude was trained on historical prices,
     so in a backtest it might recognise "Naspers in March 2020" and use hindsight.
     Keep anonymize on for backtests; it's optional for live signals.
+
+    An answer that was cut off or declined is logged and counted in ``stats["incomplete"]``,
+    the agent holds cash for that period, and the answer is not cached, so a rerun asks again.
     """
     name = "llm"
 
-    def __init__(self, model=None, anonymize=True, run_name="llm"):
-        import anthropic
-        self.client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY
+    def __init__(self, model=None, anonymize=True, run_name="llm", effort=None,
+                 client=None, log_dir=LOG_DIR):
+        self.effort = effort or os.getenv("CLAUDE_EFFORT", DEFAULT_EFFORT)
+        if self.effort not in EFFORT_LEVELS:
+            raise ValueError(f"effort must be one of {EFFORT_LEVELS}, got {self.effort!r}")
+        if client is None:
+            import anthropic
+            client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY
+        self.client = client
         self.model = model or os.getenv("CLAUDE_MODEL", "claude-sonnet-5-5")
         self.anonymize = anonymize
-        LOG_DIR.mkdir(exist_ok=True)
-        self.cache_path = LOG_DIR / "llm_cache.json"
+        log_dir = Path(log_dir)
+        log_dir.mkdir(exist_ok=True)
+        self.cache_path = log_dir / "llm_cache.json"
         self.cache = json.loads(self.cache_path.read_text()) if self.cache_path.exists() else {}
-        self.log_path = LOG_DIR / f"{run_name}_decisions.jsonl"
+        self.log_path = log_dir / f"{run_name}_decisions.jsonl"
+        self.stats = {"api_calls": 0, "cache_hits": 0, "incomplete": 0}
 
     def _alias(self, tickers):
         if not self.anonymize:
             return {t: t for t in tickers}
         return {t: f"ASSET_{i:02d}" for i, t in enumerate(sorted(tickers))}
+
+    def _ask(self, system, user):
+        """One Claude call. Returns (text, stop_reason)."""
+        self.stats["api_calls"] += 1
+        resp = self.client.beta.messages.create(
+            model=self.model, max_tokens=MAX_TOKENS, system=system,
+            messages=[{"role": "user", "content": user}],
+            output_config={"effort": self.effort},
+            betas=[FALLBACK_BETA], fallbacks="default",
+        )
+        text = "".join(b.text for b in resp.content if b.type == "text")
+        return text, resp.stop_reason
 
     def decide(self, date, closes, holdings, max_position):
         feats = snapshot(closes, date)
@@ -106,24 +140,26 @@ class LLMAgent:
         }
         system = SYSTEM_PROMPT.format(max_position=max_position)
         user = json.dumps(payload)
-        key = hashlib.sha256((self.model + system + user).encode()).hexdigest()
+        key = hashlib.sha256((self.model + self.effort + system + user).encode()).hexdigest()
 
         if key in self.cache:
-            text = self.cache[key]
+            self.stats["cache_hits"] += 1
+            text, stop_reason = self.cache[key], COMPLETE
         else:
-            resp = self.client.messages.create(
-                model=self.model, max_tokens=1000, system=system,
-                messages=[{"role": "user", "content": user}],
-            )
-            text = "".join(b.text for b in resp.content if b.type == "text")
-            self.cache[key] = text
-            self.cache_path.write_text(json.dumps(self.cache))
+            text, stop_reason = self._ask(system, user)
+            if stop_reason == COMPLETE:
+                self.cache[key] = text
+                self.cache_path.write_text(json.dumps(self.cache))
+            else:
+                self.stats["incomplete"] += 1
+                warnings.warn(f"{date.date()}: Claude stopped with {stop_reason!r}; holding cash, not caching")
+                text = ""
 
         parsed = self._parse(text)
         raw = {back.get(a, a): v for a, v in parsed.get("weights", {}).items()}
         weights = clean_weights(raw, closes.columns, max_position)
         with self.log_path.open("a") as f:
-            f.write(json.dumps({"date": str(date.date()), "weights": weights,
+            f.write(json.dumps({"date": str(date.date()), "weights": weights, "stop_reason": stop_reason,
                                 "reasoning": parsed.get("reasoning", ""), "raw": text}) + "\n")
         return weights
 
@@ -141,5 +177,6 @@ def make_agent(name, **kw):
     if name == "momentum":
         return MomentumAgent(top_n=kw.get("top_n", 5))
     if name == "llm":
-        return LLMAgent(anonymize=kw.get("anonymize", True), run_name=kw.get("run_name", "llm"))
+        return LLMAgent(anonymize=kw.get("anonymize", True), run_name=kw.get("run_name", "llm"),
+                        effort=kw.get("effort"))
     raise ValueError(f"Unknown agent: {name}")
