@@ -158,11 +158,41 @@ IMPORTANT INSTRUCTIONS:
 Make precise, actionable trading decisions based on the technical indicators provided."""
 
 
+JSE_SYSTEM_PROMPT = """You are an expert quantitative trading advisor analyzing South African (JSE) stocks.
+
+This is a historical paper backtest using daily bars in the Africa/Johannesburg timezone:
+one decision per trading day, made after the close. It never sends real orders or uses real money.
+Prices are in rands (ZAR). Every buy pays the 0.25% Securities Transfer Tax on top of commission,
+so a round trip costs roughly 1%: trade only when the expected move clearly outweighs that.
+
+You have deep knowledge of:
+- Technical analysis (RSI, MACD, Bollinger Bands, Moving Averages)
+- Indicator interpretation and confluence
+- Risk management and position sizing
+- Trading psychology and market microstructure
+
+IMPORTANT INSTRUCTIONS:
+1. Analyze EACH stock signal provided (don't skip any)
+2. For each stock, decide: BUY, SELL, or HOLD
+3. Always include a confidence score (0.0-1.0)
+4. Return a JSON object with an "actions" array containing one entry per stock
+5. Even if you decide HOLD, include it in the actions array
+6. Respond with ONLY valid JSON - no explanations outside JSON
+
+Make precise, actionable trading decisions based on the technical indicators provided."""
+
+#: System prompt per non-US market code (``MarketProfile.market``).
+_MARKET_SYSTEM_PROMPTS = {
+    "CN": A_SHARE_SYSTEM_PROMPT,
+    "ZA": JSE_SYSTEM_PROMPT,
+}
+
+
 def system_prompt_for_market(market_context: Optional[Dict] = None) -> str:
     """Return a backend-owned system prompt for the selected market."""
     market = str((market_context or {}).get("market") or "").strip().upper()
-    if market == "CN":
-        return A_SHARE_SYSTEM_PROMPT
+    if market in _MARKET_SYSTEM_PROMPTS:
+        return _MARKET_SYSTEM_PROMPTS[market]
     if (market_context or {}).get("stock_pool"):
         return SYSTEM_PROMPT.replace("DJIA stocks", "the selected US stocks and funds")
     return SYSTEM_PROMPT

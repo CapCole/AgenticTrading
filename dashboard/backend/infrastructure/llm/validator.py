@@ -1046,7 +1046,17 @@ def create_prompt(
 
 
 def _pool_prompt_template(template: str, market_snapshot: Dict[str, Any]) -> str:
-    """Keep legacy prompts stable; named pools must not claim to be Dow-only."""
-    if (market_snapshot.get("market") or {}).get("stock_pool"):
+    """Keep legacy prompts stable; named pools must not claim to be Dow-only.
+
+    A JSE run trades South African shares on daily bars, so it must not be
+    told it is a DJIA agent on hourly data. Every other market's prompt is
+    left byte-identical, keeping historical runs comparable.
+    """
+    market = market_snapshot.get("market") or {}
+    if str(market.get("market") or "").upper() == "ZA":
+        return template.replace("DJIA", "JSE").replace(
+            "historical hourly data", "historical daily data"
+        )
+    if market.get("stock_pool"):
         return template.replace("DJIA", "selected-universe")
     return template

@@ -273,6 +273,13 @@ def _accepts_keyword(function, name: str, *, via_var_keyword: bool = True) -> bo
 TRADING_DAYS_PER_YEAR = 252
 
 
+#: Human-readable FX source shown to the LLM, keyed on ``CurrencyContext.fx_source``.
+_FX_SOURCE_LABELS = {
+    "ifind_history_currency_conversion": "iFinD Historical Conversion Rate",
+    "yahoo_usd_zar_daily_close": "Yahoo Finance USD/ZAR daily close",
+}
+
+
 class HourlyBacktester:
     """Runs hourly backtest with agent and baselines."""
     
@@ -2036,7 +2043,7 @@ class HourlyBacktester:
             )
         if context.requires_conversion:
             result["fx_pair"] = context.fx_pair
-            result["fx_source"] = "iFinD Historical Conversion Rate"
+            result["fx_source"] = _FX_SOURCE_LABELS.get(context.fx_source, context.fx_source)
         return result
 
     def _current_equity(self, manager: PortfolioManager, timestamp=None) -> float:

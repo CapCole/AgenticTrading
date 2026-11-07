@@ -2572,10 +2572,10 @@ function syncBacktestModelFieldMode() {
   const isJse = source === YAHOO_JSE_SOURCE;
   const isRuleBased = (
     isSimulation
-    || isJse
+    || (isJse && modelSelect?.value === RULE_BASED_DECISION_SOURCE)
     || (isIFind && modelSelect?.value === RULE_BASED_DECISION_SOURCE)
   );
-  const modelIsEditable = !isHostedRuntime && !isSimulation && !isJse;
+  const modelIsEditable = !isHostedRuntime && !isSimulation;
   if (modelSelect) modelSelect.hidden = !modelIsEditable;
   if (readonly) {
     readonly.hidden = modelIsEditable;
@@ -3988,7 +3988,7 @@ async function loadMarketDataFeatures() {
   if (window.YAHOO_JSE_ENABLED && !existingJse) {
     const option = document.createElement('option');
     option.value = YAHOO_JSE_SOURCE;
-    option.textContent = 'Yahoo JSE Top 20 (daily, rule-based)';
+    option.textContent = 'Yahoo JSE Top 20 (daily)';
     select.appendChild(option);
   } else if (!window.YAHOO_JSE_ENABLED && existingJse) {
     existingJse.remove();
@@ -4065,20 +4065,86 @@ function syncMarketDataSourceUI(options = {}) {
     window.IFIND_PREVIOUS_UI_STATE = null;
   }
 
+  syncYahooJseModelChoice(isJse, modelSelect);
+  syncYahooJseUniverse(isJse);
   if (modelSelect && !isIFind) {
-    modelSelect.disabled = isSimulation || isJse;
-    modelSelect.setAttribute('aria-disabled', String(isSimulation || isJse));
+    modelSelect.disabled = isSimulation;
+    modelSelect.setAttribute('aria-disabled', String(isSimulation));
   }
   if (modelSelectHint && !isIFind) {
     modelSelectHint.textContent = isSimulation
       ? 'vn.py simulation uses rule-based decisions.'
       : (isJse
-        ? 'JSE runs here are rule-based on daily bars (up to a year); LLM runs use the API or CLI.'
+        ? 'Rule-based is free. Pick an AI model to run an LLM agent on daily JSE bars: one model call per trading day, billed to the provider.'
         : 'Choose a provider-compatible model for this run.');
   }
   if (notice) notice.hidden = !isSimulation;
   if (ifindNotice) ifindNotice.hidden = !isIFind;
   syncBacktestModelFieldMode();
+}
+
+/** Sources whose model picker offers "Rule-based" next to the AI models. */
+function sourceHasRuleBasedChoice(source) {
+  return source === IFIND_ASHARE_SOURCE || source === YAHOO_JSE_SOURCE;
+}
+
+/**
+ * Entering the JSE source adds a "Rule-based" choice and selects it, so a JSE
+ * run costs nothing until an AI model is picked on purpose. Leaving removes the
+ * choice and restores the model the user had. Re-syncing while on JSE keeps the
+ * user's pick.
+ */
+function syncYahooJseModelChoice(isJse, modelSelect) {
+  if (!modelSelect) return;
+  const ruleSelector = `option[value="${RULE_BASED_DECISION_SOURCE}"]`;
+  if (isJse && window.YAHOO_JSE_PREVIOUS_MODEL === undefined) {
+    window.YAHOO_JSE_PREVIOUS_MODEL = modelSelect.value || '';
+    if (!modelSelect.querySelector(ruleSelector)) {
+      const ruleOption = document.createElement('option');
+      ruleOption.value = RULE_BASED_DECISION_SOURCE;
+      ruleOption.textContent = 'Rule-based';
+      modelSelect.insertBefore(ruleOption, modelSelect.firstChild);
+    }
+    modelSelect.value = RULE_BASED_DECISION_SOURCE;
+  } else if (!isJse && window.YAHOO_JSE_PREVIOUS_MODEL !== undefined) {
+    modelSelect.querySelector(ruleSelector)?.remove();
+    if (window.YAHOO_JSE_PREVIOUS_MODEL) modelSelect.value = window.YAHOO_JSE_PREVIOUS_MODEL;
+    window.YAHOO_JSE_PREVIOUS_MODEL = undefined;
+  }
+}
+
+/**
+ * JSE trades a fixed 20-share universe, so its panel replaces the US
+ * Built-in/Custom pickers, and the period hint states its one-year cap.
+ * Leaving restores the US tab and hint the user had.
+ */
+function syncYahooJseUniverse(isJse) {
+  const panel = document.getElementById('yahooJseUniverse');
+  const grid = document.getElementById('yahooJseSymbolGrid');
+  const hint = document.getElementById('runBacktestPeriodHint');
+  const builtinTab = document.getElementById('builtinTab');
+  const customTab = document.getElementById('customTab');
+  if (panel) panel.hidden = !isJse;
+  if (hint && hint.dataset.defaultText === undefined) hint.dataset.defaultText = hint.textContent;
+  if (isJse) {
+    if (grid && !grid.childElementCount) {
+      grid.innerHTML = YAHOO_JSE_SYMBOLS.map((symbol) => `
+        <div class="ifind-symbol-item"><span>${escapeHtml(symbol)}</span></div>
+      `).join('');
+    }
+    if (builtinTab) builtinTab.style.display = 'none';
+    if (customTab) customTab.style.display = 'none';
+    if (hint) {
+      hint.textContent = 'Pre-filled with a full year of daily JSE bars. You can pick an end date up to '
+        + `${YAHOO_JSE_MAX_BACKTEST_DAYS} days after the start date.`;
+    }
+    window.YAHOO_JSE_UNIVERSE_SHOWN = true;
+  } else if (window.YAHOO_JSE_UNIVERSE_SHOWN) {
+    const activeTab = document.querySelector('.universe-tab.active');
+    if (activeTab) handleUniverseTabSwitch(activeTab);
+    if (hint) hint.textContent = hint.dataset.defaultText;
+    window.YAHOO_JSE_UNIVERSE_SHOWN = false;
+  }
 }
 
 /**
@@ -9899,7 +9965,7 @@ function syncRunBacktestSubmitAvailability() {
     const isRuleBased = (
         dataSource === 'vnpy_simulation'
         || (
-            dataSource === IFIND_ASHARE_SOURCE
+            sourceHasRuleBasedChoice(dataSource)
             && modelId === RULE_BASED_DECISION_SOURCE
         )
     );
@@ -9960,8 +10026,15 @@ function syncRunBacktestModelOptions(preferredModelId = '') {
         || providers[0]?.models?.[0]
         || null;
     if (preferred) modelSelect.value = preferred.model_id;
-    if (document.getElementById('marketDataSourceSelect')?.value === IFIND_ASHARE_SOURCE) {
+    const marketSource = document.getElementById('marketDataSourceSelect')?.value;
+    if (marketSource === IFIND_ASHARE_SOURCE) {
         syncIFindModelControl();
+        if (previousRuleBased) modelSelect.value = RULE_BASED_DECISION_SOURCE;
+    } else if (marketSource === YAHOO_JSE_SOURCE) {
+        const ruleOption = document.createElement('option');
+        ruleOption.value = RULE_BASED_DECISION_SOURCE;
+        ruleOption.textContent = 'Rule-based';
+        modelSelect.insertBefore(ruleOption, modelSelect.firstChild);
         if (previousRuleBased) modelSelect.value = RULE_BASED_DECISION_SOURCE;
     }
     syncBacktestModelFieldMode();
@@ -10037,8 +10110,9 @@ function setRunBacktestExecutionUnavailable(
     clearSelectOptions(modelSelect);
     if (
         modelSelect
-        && document.getElementById('marketDataSourceSelect')?.value
-            === IFIND_ASHARE_SOURCE
+        && sourceHasRuleBasedChoice(
+            document.getElementById('marketDataSourceSelect')?.value,
+        )
     ) {
         const ruleOption = document.createElement('option');
         ruleOption.value = RULE_BASED_DECISION_SOURCE;
@@ -10243,7 +10317,13 @@ function backtestRequestPipeline(agent) {
 function runBacktestModalDecisionSource() {
     const dataSource = document.getElementById('marketDataSourceSelect')?.value || 'alpaca';
     if (dataSource === 'vnpy_simulation') return RULE_BASED_DECISION_SOURCE;
-    if (dataSource === YAHOO_JSE_SOURCE) return RULE_BASED_DECISION_SOURCE;
+    if (dataSource === YAHOO_JSE_SOURCE) {
+        // Rule-based unless an AI model is picked; the picker defaults to Rule-based.
+        const jseModel = document.getElementById('modelSelect')?.value || '';
+        return jseModel && jseModel !== RULE_BASED_DECISION_SOURCE
+            ? LLM_DECISION_SOURCE
+            : RULE_BASED_DECISION_SOURCE;
+    }
     if (dataSource !== IFIND_ASHARE_SOURCE) return LLM_DECISION_SOURCE;
     const profile = getIFindUniverseProfile(getSelectedIFindUniverse());
     const allowsLLM = profile?.allowedDecisionSources.includes(LLM_DECISION_SOURCE) === true;

@@ -326,7 +326,7 @@
 
                 <div class="control-group">
                     <label>Period</label>
-                    <p class="control-helper">Pre-filled with a recent window that has full market data. You can pick an end date up to 14 days after the start date.</p>
+                    <p id="runBacktestPeriodHint" class="control-helper">Pre-filled with a recent window that has full market data. You can pick an end date up to 14 days after the start date.</p>
                     <div class="date-range-inputs">
                         <div class="date-input-wrapper">
                             <input type="date" id="startDate" class="date-input">
@@ -368,6 +368,13 @@
                             <span class="ifind-timeframe">60m</span>
                         </div>
                         <div id="ifindAshareSymbolGrid" class="ifind-symbol-grid" aria-label="Registered A-share universe"></div>
+                    </div>
+                    <div id="yahooJseUniverse" class="ifind-universe-panel" hidden>
+                        <div class="ifind-universe-head">
+                            <span class="ifind-universe-title">JSE Top 20 · 20 stocks</span>
+                            <span class="ifind-timeframe">1d</span>
+                        </div>
+                        <div id="yahooJseSymbolGrid" class="ifind-symbol-grid" aria-label="JSE Top 20, 20 stocks"></div>
                     </div>
                     <div class="universe-tabs" id="universeTabs">
                         <button class="universe-tab active" data-tab="builtin" type="button">Built-in</button>
