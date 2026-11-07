@@ -140,3 +140,22 @@ def test_cli_offers_the_yahoo_jse_source(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert "yahoo_jse" in result.stdout
+
+
+def test_jse_run_fetches_enough_daily_history_to_warm_sma50(monkeypatch):
+    # sma50 needs 50 daily bars before the first decision; the hourly-sized
+    # 30-calendar-day pad gave ~21, leaving sma50 and MACD unwarmed.
+    provider = FakeYahoo(make_daily_bars())
+    backtester, _ = _backtester(monkeypatch, provider)
+    backtester.load_data()
+    fetch_start = date.fromisoformat(provider.calls[0][1])
+    assert (date.fromisoformat(START) - fetch_start).days >= 100
+    assert date.fromisoformat(provider.fx_calls[0][1]) == fetch_start
+
+
+def test_daily_pad_leaves_intraday_pads_unchanged():
+    from dashboard.backend.infrastructure.market_data.provider import warmup_fetch_start
+
+    assert warmup_fetch_start("2026-04-01") == "2026-03-02"
+    assert warmup_fetch_start("2026-04-01", timeframe="60m") == "2026-03-02"
+    assert warmup_fetch_start("2026-04-01", timeframe="1d") <= "2025-12-22"

@@ -46,19 +46,27 @@ def exclusive_end(end_date: str) -> str:
 #: is ~13 trading days, and 30 calendar days still clears it with a week-long
 #: exchange closure (National Day, Spring Festival) inside the pad.
 INDICATOR_WARMUP_CALENDAR_DAYS = 30
+#: The same pad for daily bars (Yahoo JSE): one bar a day, so sma50 needs 50
+#: trading days and MACD ~35. 120 calendar days is ~82 trading days, clearing
+#: both with the year-end holidays inside the pad.
+DAILY_INDICATOR_WARMUP_CALENDAR_DAYS = 120
 
 
-def warmup_fetch_start(start_date: str) -> str:
+def warmup_fetch_start(start_date: str, timeframe: str | None = None) -> str:
     """The provider ``start`` that covers ``start_date`` plus its indicator pad.
 
     One owner for the engine's fetch and the boot-time bar-cache warm: the
     cache is keyed on the requested ``start``, so a warm that padded by a
     different amount would fill entries no run reads. Zero-padded and raising
-    on a malformed date, like ``exclusive_end``.
+    on a malformed date, like ``exclusive_end``. ``timeframe="1d"`` uses the
+    daily pad; any other value (or none) keeps the intraday pad unchanged.
     """
-    return (
-        parse_ymd(start_date) - timedelta(days=INDICATOR_WARMUP_CALENDAR_DAYS)
-    ).isoformat()
+    days = (
+        DAILY_INDICATOR_WARMUP_CALENDAR_DAYS
+        if timeframe == "1d"
+        else INDICATOR_WARMUP_CALENDAR_DAYS
+    )
+    return (parse_ymd(start_date) - timedelta(days=days)).isoformat()
 
 
 def parse_ymd(value: object) -> date:
