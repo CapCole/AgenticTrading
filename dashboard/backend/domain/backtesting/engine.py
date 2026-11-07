@@ -1297,7 +1297,7 @@ class HourlyBacktester:
         # values or gates on these frames.
         padded = self._wants_indicator_warmup()
         self.warmup_start_date = (
-            warmup_fetch_start(self.start_date, self.profile.timeframe)
+            warmup_fetch_start(self.start_date, getattr(getattr(self, "profile", None), "timeframe", None))
             if padded
             else self.start_date
         )
@@ -1577,7 +1577,7 @@ class HourlyBacktester:
             # From the indicator pad, so a rate exists on or before the first bar.
             rates = self.data_loader.fetch_fx_rates(
                 self.symbols,
-                warmup_fetch_start(self.start_date, self.profile.timeframe),
+                warmup_fetch_start(self.start_date, getattr(getattr(self, "profile", None), "timeframe", None)),
                 self.provider_end_date,
             )
             context = CurrencyContext(
