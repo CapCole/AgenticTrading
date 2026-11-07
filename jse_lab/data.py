@@ -1,4 +1,5 @@
 """JSE price data from Yahoo Finance with a local CSV cache."""
+import hashlib
 from pathlib import Path
 import warnings
 import pandas as pd
@@ -35,6 +36,12 @@ def _fix_unit_glitches(df: pd.DataFrame) -> pd.DataFrame:
     return df.mask(glitch, df * 100)
 
 
+def cache_key(tickers, start, end) -> str:
+    """Short, stable filename stem for a price request (same in every run, unlike hash())."""
+    raw = f"{'_'.join(sorted(tickers))}|{start}|{end}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
 def load_prices(tickers, start, end=None, refresh=False):
     """Return (open, close) DataFrames in rands, indexed by date, one column per ticker.
 
@@ -42,8 +49,7 @@ def load_prices(tickers, start, end=None, refresh=False):
     Returns are unaffected either way.
     """
     CACHE.mkdir(exist_ok=True)
-    key = f"{'_'.join(sorted(tickers))}_{start}_{end}".replace(".", "")
-    key = str(abs(hash(key)))  # keep filenames short
+    key = cache_key(tickers, start, end)
     o_path, c_path = CACHE / f"{key}_open.csv", CACHE / f"{key}_close.csv"
 
     if o_path.exists() and c_path.exists() and not refresh:

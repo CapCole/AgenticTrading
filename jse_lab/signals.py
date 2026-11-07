@@ -12,11 +12,12 @@ from pathlib import Path
 from agents import make_agent
 from config import DEFAULT_UNIVERSE, BacktestConfig
 from data import load_prices
+from features import snapshot
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--agent", default="momentum", choices=["momentum", "llm"])
+    p.add_argument("--agent", default="momentum", choices=["momentum", "ollama", "claude"])
     p.add_argument("--holdings", default="holdings.json")
     a = p.parse_args()
 
@@ -40,7 +41,14 @@ def main():
             continue
         side = "BUY" if diff > 0 else "SELL"
         print(f"{t:<10}{current.get(t, 0):>8.1%}{target.get(t, 0):>8.1%}{diff:>14,.0f}  {side}")
-    print("\nThese are suggestions only. Check them before placing any order.")
+    out = Path("results")
+    out.mkdir(exist_ok=True)
+    report = {"as_of": str(date.date()), "agent": a.agent, "equity": round(equity, 2),
+              "current_weights": current, "target_weights": target,
+              "features": snapshot(closes, date)}
+    (out / "latest_signals.json").write_text(json.dumps(report, indent=2))
+    print(f"\nSaved full details to {(out / 'latest_signals.json').resolve()}")
+    print("These are suggestions only. Check them before placing any order.")
 
 
 if __name__ == "__main__":
