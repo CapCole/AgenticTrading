@@ -1,0 +1,39 @@
+{
+  "name": "equal_weight",
+  "start": "2026-11-09",
+  "capital": 100000.0,
+  "cash": 100000.0,
+  "shares": {},
+  "pending": {
+    "decided": "2026-11-09",
+    "weights": {
+      "NPN.JO": 0.05,
+      "PRX.JO": 0.05,
+      "FSR.JO": 0.05,
+      "SBK.JO": 0.05,
+      "CPI.JO": 0.05,
+      "ABG.JO": 0.05,
+      "NED.JO": 0.05,
+      "MTN.JO": 0.05,
+      "VOD.JO": 0.05,
+      "SOL.JO": 0.05,
+      "AGL.JO": 0.05,
+      "GLN.JO": 0.05,
+      "SHP.JO": 0.05,
+      "BTI.JO": 0.05,
+      "CFR.JO": 0.05,
+      "GFI.JO": 0.05,
+      "ANG.JO": 0.05,
+      "IMP.JO": 0.05,
+      "BVT.JO": 0.05,
+      "WHL.JO": 0.05
+    }
+  },
+  "history": [
+    {
+      "date": "2026-11-09",
+      "equity": 100000.0
+    }
+  ],
+  "trades": []
+}

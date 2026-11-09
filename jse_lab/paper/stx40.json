@@ -1,0 +1,20 @@
+{
+  "name": "stx40",
+  "start": "2026-11-09",
+  "capital": 100000.0,
+  "cash": 100000.0,
+  "shares": {},
+  "pending": {
+    "decided": "2026-11-09",
+    "weights": {
+      "STX40.JO": 1.0
+    }
+  },
+  "history": [
+    {
+      "date": "2026-11-09",
+      "equity": 100000.0
+    }
+  ],
+  "trades": []
+}
