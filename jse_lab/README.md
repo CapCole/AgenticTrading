@@ -28,6 +28,13 @@ metrics report it under `model.incomplete`. If that count isn't 0, the result un
     python signals.py --agent momentum
 Then in Claude Code, run `/jse-signals` for a check of the suggestions (uses your subscription, not API credits).
 
+## Forward paper trading
+    python paper.py     # once a week, after the JSE close (17:30 SAST)
+Runs three virtual R100k portfolios on live prices: `momentum`, `stx40` (benchmark) and
+`equal_weight` (buy once, hold). Each run fills last week's orders at the next day's open with
+costs, values everything at the latest close, and sets new targets. Ledgers and `report.md` are in
+`paper/`; commit them weekly so the record can't be edited after the fact. No real orders.
+
 ## Tests
     python -m unittest test_agents test_data   # no network, no API key, no cost
 
